@@ -1,6 +1,6 @@
 ---
 - name: 웹 서비스 배포
-  hosts: 도커호스트
+  hosts: all
   become: true
   
   tasks:
