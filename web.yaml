@@ -1,47 +1,54 @@
 ---
-- name: 웹 서비스 배포
+- name: nginx와 proxy 서비스 배포
   hosts: all
-  become: true
-  
+  become: yes
   tasks:
-    - name: nginx 컨테이너 실행
-      docker_container:
-        name: nginx
-        image: nginx
+    - name: 배포를 위한 Docker service 실행
+      docker_service:
         state: started
-        restart_policy: on-failure
-        restart_retries: 3
-        networks:
-          - name: web
-        deploy:
-          replicas: 2
-          resources:
-            limits:
-              cpus: '1'
-              memory: '32M'
-          placement:
-            constraints: [node.role != manager]
+        definition:
+          version: '3'
+          services:
+            nginx:
+              image: nginx
+              restart_policy:
+                condition: on-failure
+                max_attempts: 3
+              environment:
+                SERVICE_PORTS: 80
+              networks:
+                - name: web
+              deploy:
+                replicas: 2
+                placement:
+                  constraints: [node.role != manager]
+                resources:
+                  limits:
+                    cpus: '1'
+                    memory: '32M'
+            proxy:
+              image: dockercloud/haproxy
+              depends_on:
+                - nginx
+              ports:
+                - "8000:8000"
+              volumes:
+                - "/var/run/docker.sock:/var/run/docker.sock"
+              networks:
+                - name: web
+              deploy:
+                mode: global
+                placement:
+                  constraints: [node.role == manager]
 
-    - name: proxy 컨테이너 실행
-      docker_container:
-        name: proxy
-        image: dockercloud/haproxy
-        state: started
-        restart_policy: on-failure
-        restart_retries: 3
-        networks:
-          - name: web
-        ports:
-          - "8000:8000"
-        volumes:
-          - "/var/run/docker.sock:/var/run/docker.sock"
-        deploy:
-          mode: global
-          placement:
-            constraints: [node.role == manager]
+    - name: 설정된 외부 네트워크 'web' 확인
+      docker_network_info:
+        name: web
+      register: web_network_info
 
-    - name: 웹 네트워크 생성
+    - name: 외부 네트워크 'web' 생성
       docker_network:
         name: web
+        driver: overlay
         state: present
-        external: yes
+      when: web_network_info == {}
